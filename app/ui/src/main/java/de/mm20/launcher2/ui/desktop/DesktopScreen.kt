@@ -68,6 +68,7 @@ import de.mm20.launcher2.icons.LauncherIcon
 import de.mm20.launcher2.search.Application
 import de.mm20.launcher2.ui.component.ShapedLauncherIcon
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Date
 
@@ -75,7 +76,7 @@ private val TaskbarHeight = 60.dp
 
 /**
  * Linux / desktop style home screen: icons on the desktop, a taskbar with a start menu and the
- * running apps. This is a regular full screen launcher UI, not an overlay window.
+ * recent-app taskbar. This is a regular full screen launcher UI, not an overlay window.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -90,15 +91,18 @@ fun DesktopScreen(
 
     val allApps by vm.allApps.collectAsState()
     val desktopApps by vm.desktopApps.collectAsState()
-    val running by vm.running.collectAsState()
+    val recentApps by vm.running.collectAsState()
 
     var startOpen by remember { mutableStateOf(false) }
     val taskbarInsetPx = with(density) { (TaskbarHeight + 24.dp).roundToPx() }
 
+    // Usage stats are relatively expensive and do not represent live processes.
+    // Refresh immediately, then at a modest interval while this screen is composed.
     LaunchedEffect(allApps.size) {
-        while (true) {
+        vm.refreshRunning(context)
+        while (isActive) {
+            delay(30_000)
             vm.refreshRunning(context)
-            delay(4000)
         }
     }
 
@@ -154,7 +158,7 @@ fun DesktopScreen(
             vm = vm,
             actions = actions,
             allApps = allApps,
-            running = running,
+            recentApps = recentApps,
             startOpen = startOpen,
             onToggleStart = { startOpen = !startOpen },
             modifier = Modifier
@@ -234,6 +238,8 @@ private class DesktopActions(
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
+            android.util.Log.w("DesktopActions", "Unable to open app details for ${app.componentName.packageName}", e)
+            toast("Unable to open app settings")
         }
     }
 }
@@ -325,7 +331,7 @@ private fun Taskbar(
     vm: DesktopVM,
     actions: DesktopActions,
     allApps: List<Application>,
-    running: List<Application>,
+    recentApps: List<Application>,
     startOpen: Boolean,
     onToggleStart: () -> Unit,
     modifier: Modifier = Modifier,
@@ -334,9 +340,9 @@ private fun Taskbar(
     val pinnedApps = pinnedFlat.mapNotNull { flat ->
         allApps.firstOrNull { it.componentName.flattenToString() == flat }
     }
-    val runningPkgs = running.map { it.componentName.packageName }.toSet()
-    val extraRunning = running.filter { r -> pinnedApps.none { it.key == r.key } }
-    val taskbarApps = pinnedApps + extraRunning
+    val recentPkgs = recentApps.map { it.componentName.packageName }.toSet()
+    val extraRecent = recentApps.filter { r -> pinnedApps.none { it.key == r.key } }
+    val taskbarApps = pinnedApps + extraRecent
 
     Surface(
         modifier = modifier.height(TaskbarHeight),
@@ -377,7 +383,7 @@ private fun Taskbar(
             }
             Spacer(Modifier.width(8.dp))
 
-            // Pinned + running apps. Scrolls instead of overlapping the clock on the right.
+            // Pinned + recently used apps. Scrolls instead of overlapping the clock on the right.
             LazyRow(
                 modifier = Modifier
                     .weight(1f)
@@ -386,7 +392,7 @@ private fun Taskbar(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 items(taskbarApps, key = { it.key }) { app ->
-                    TaskbarItem(vm, actions, app, isRunning = runningPkgs.contains(app.componentName.packageName))
+                    TaskbarItem(vm, actions, app, isRecentlyUsed = recentPkgs.contains(app.componentName.packageName))
                 }
             }
 
@@ -414,7 +420,7 @@ private fun Taskbar(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TaskbarItem(vm: DesktopVM, actions: DesktopActions, app: Application, isRunning: Boolean) {
+private fun TaskbarItem(vm: DesktopVM, actions: DesktopActions, app: Application, isRecentlyUsed: Boolean) {
     val icon = rememberAppIcon(vm, app, 36.dp)
     var menu by remember { mutableStateOf(false) }
     Box {
@@ -430,7 +436,7 @@ private fun TaskbarItem(vm: DesktopVM, actions: DesktopActions, app: Application
                 modifier = Modifier
                     .padding(top = 2.dp)
                     .height(3.dp)
-                    .width(if (isRunning) 14.dp else 0.dp)
+                    .width(if (isRecentlyUsed) 14.dp else 0.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
             )
@@ -523,7 +529,7 @@ private fun StartMenu(
                         )
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Allow usage access to show running apps") }
+                ) { Text("Allow usage access to show recent apps") }
             }
         }
     }

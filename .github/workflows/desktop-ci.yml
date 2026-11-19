@@ -1,0 +1,51 @@
+name: Desktop Launcher CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, lint and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Run desktop launcher verification
+        run: >-
+          ./gradlew --no-daemon
+          :app:app:testDefaultDebugUnitTest
+          :app:ui:testDebugUnitTest
+          :app:app:lintDefaultDebug
+          :app:app:assembleDefaultDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smartdock-debug-apk
+          path: app/app/build/outputs/apk/default/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14

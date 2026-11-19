@@ -35,7 +35,7 @@ object DesktopPrefs {
         if (loaded) return
         loaded = true
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        enabled = p.getBoolean("enabled", true)
+        enabled = p.getBoolean("enabled", false)
         floatingTaskbar = p.getBoolean("floating_taskbar", true)
         iconSizeDp = p.getInt("icon_size", 56)
         taskbarPinned = (p.getString("taskbar_pinned", "") ?: "")
