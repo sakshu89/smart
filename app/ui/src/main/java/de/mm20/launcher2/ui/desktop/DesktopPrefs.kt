@@ -21,6 +21,14 @@ object DesktopPrefs {
     var floatingTaskbar by mutableStateOf(true)
         private set
 
+    /** "floating" opens apps in resizable windows (needs freeform), "normal" opens fullscreen. */
+    var defaultLaunch by mutableStateOf("normal")
+        private set
+
+    /** Desktop style: single click selects an icon, double click opens it. */
+    var doubleClickToOpen by mutableStateOf(true)
+        private set
+
     /** Desktop icon size in dp. */
     var iconSizeDp by mutableIntStateOf(56)
         private set
@@ -35,9 +43,11 @@ object DesktopPrefs {
         if (loaded) return
         loaded = true
         val p = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        enabled = p.getBoolean("enabled", false)
+        enabled = p.getBoolean("enabled", true)
         floatingTaskbar = p.getBoolean("floating_taskbar", true)
         iconSizeDp = p.getInt("icon_size", 56)
+        defaultLaunch = p.getString("default_launch", "normal") ?: "normal"
+        doubleClickToOpen = p.getBoolean("double_click", true)
         taskbarPinned = (p.getString("taskbar_pinned", "") ?: "")
             .split("|").filter { it.isNotBlank() }
     }
@@ -53,6 +63,16 @@ object DesktopPrefs {
     fun setFloatingTaskbar(context: Context, value: Boolean) {
         floatingTaskbar = value
         prefs(context).edit().putBoolean("floating_taskbar", value).apply()
+    }
+
+    fun setDefaultLaunch(context: Context, value: String) {
+        defaultLaunch = value
+        prefs(context).edit().putString("default_launch", value).apply()
+    }
+
+    fun setDoubleClickToOpen(context: Context, value: Boolean) {
+        doubleClickToOpen = value
+        prefs(context).edit().putBoolean("double_click", value).apply()
     }
 
     fun setIconSize(context: Context, value: Int) {

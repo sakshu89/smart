@@ -8,6 +8,9 @@
 
     <uses-permission android:name="android.permission.SET_ALARM" />
     <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
@@ -65,6 +68,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".activity.DesktopBrowserActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:resizeableActivity="true"
+            android:label="Desktop Browser"
+            android:theme="@style/LauncherTheme" />
+
         <provider
             android:name=".content.GenericFileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -74,6 +85,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/provider_paths" />
         </provider>
+
+        <service
+            android:name=".activity.GameKeyMapperAccessibilityService"
+            android:label="Game key mapper"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/game_keymapper_accessibility" />
+        </service>
     </application>
 
 </manifest>

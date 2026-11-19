@@ -4,7 +4,6 @@ import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.os.Process
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import de.mm20.launcher2.applications.AppRepository
@@ -15,14 +14,15 @@ import de.mm20.launcher2.search.Application
 import de.mm20.launcher2.search.SavableSearchable
 import de.mm20.launcher2.searchable.PinnedLevel
 import de.mm20.launcher2.services.favorites.FavoritesService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 
@@ -45,11 +45,10 @@ class DesktopVM : ViewModel(), KoinComponent {
 
     private val _running = MutableStateFlow<List<Application>>(emptyList())
 
-    /** Recently used apps, most recent first (not a live-process list). */
+    /** Recently used / running apps, most recent first. */
     val running: StateFlow<List<Application>> = _running
 
     private val launchedFromDesktop = ArrayList<String>()
-    private val launchedLock = Any()
 
     fun iconFlow(app: SavableSearchable, sizePx: Int): Flow<LauncherIcon?> =
         iconService.getIcon(app, sizePx)
@@ -62,7 +61,7 @@ class DesktopVM : ViewModel(), KoinComponent {
 
     fun noteLaunched(app: Application) {
         val pkg = app.componentName.packageName
-        synchronized(launchedLock) {
+        synchronized(launchedFromDesktop) {
             launchedFromDesktop.remove(pkg)
             launchedFromDesktop.add(0, pkg)
             while (launchedFromDesktop.size > 24) launchedFromDesktop.removeAt(launchedFromDesktop.lastIndex)
@@ -84,54 +83,37 @@ class DesktopVM : ViewModel(), KoinComponent {
     }
 
     /**
-     * Updates a *recently used* apps strip. Android does not expose a reliable list of all
-     * live processes to ordinary launchers, so this deliberately does not claim these apps
-     * are currently running. UsageStats queries and list processing run off the main thread.
+     * Updates the running apps strip. With usage access it lists apps used in the last few hours,
+     * otherwise it falls back to the apps started from this desktop.
      */
-    suspend fun refreshRunning(context: Context) {
-        val snapshot = allApps.value
-        if (snapshot.isEmpty()) return
-
-        val result = withContext(Dispatchers.IO) {
-            try {
-                val appByPackage = snapshot
-                    .asSequence()
+    fun refreshRunning(context: Context) {
+        val appSnapshot = allApps.value
+        if (appSnapshot.isEmpty()) return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val packages = LinkedHashSet<String>()
+                if (hasUsageAccess(context)) {
+                    runCatching {
+                        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+                        val now = System.currentTimeMillis()
+                        usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 12 * 3600_000L, now)
+                            .asSequence()
+                            .filter { it.lastTimeUsed > now - 3 * 3600_000L }
+                            .sortedByDescending { it.lastTimeUsed }
+                            .forEach { packages.add(it.packageName) }
+                    }
+                }
+                synchronized(launchedFromDesktop) { launchedFromDesktop.forEach { packages.add(it) } }
+                val appByPackage = appSnapshot
                     .filter { it.user == Process.myUserHandle() }
                     .associateBy { it.componentName.packageName }
-                val packages = LinkedHashSet<String>()
-
-                if (hasUsageAccess(context)) {
-                    val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-                    val now = System.currentTimeMillis()
-                    usm.queryUsageStats(
-                        UsageStatsManager.INTERVAL_DAILY,
-                        now - 12 * 60 * 60 * 1000L,
-                        now
-                    )
-                        .asSequence()
-                        .filter { it.lastTimeUsed > now - 3 * 60 * 60 * 1000L }
-                        .sortedByDescending { it.lastTimeUsed }
-                        .forEach { packages.add(it.packageName) }
-                }
-
-                synchronized(launchedLock) {
-                    launchedFromDesktop.forEach { packages.add(it) }
-                }
-
                 packages.asSequence()
                     .filter { it != context.packageName }
                     .mapNotNull { appByPackage[it] }
                     .take(12)
                     .toList()
-            } catch (e: Exception) {
-                Log.w("DesktopVM", "Unable to refresh recently used applications", e)
-                emptyList()
             }
-        }
-
-        if (result.map { it.key } != _running.value.map { it.key }) {
-            _running.value = result
+            if (result.map { it.key } != _running.value.map { it.key }) _running.value = result
         }
     }
-
 }

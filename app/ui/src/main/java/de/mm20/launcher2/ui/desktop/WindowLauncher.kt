@@ -28,6 +28,16 @@ object WindowLauncher {
         }
     }
 
+    private var cascade = 0
+
+    /** Opens [app] the way the user configured it: floating window (desktop style) or fullscreen. */
+    fun launchDefault(context: Context, app: Application, bottomInsetPx: Int): Boolean {
+        if (DesktopPrefs.defaultLaunch == "floating" && isFreeformCapable(context)) {
+            if (launchFloating(context, app, bottomInsetPx)) return true
+        }
+        return launchNormal(context, app)
+    }
+
     /** Launch [app] normally. */
     fun launchNormal(context: Context, app: Application): Boolean {
         return app.launch(context, ActivityOptions.makeBasic().toBundle())
@@ -52,8 +62,13 @@ object WindowLauncher {
         val dm = context.resources.displayMetrics
         val w = (dm.widthPixels * 0.6f).toInt()
         val h = ((dm.heightPixels - bottomInsetPx) * 0.8f).toInt()
-        val left = (dm.widthPixels - w) / 2
-        val top = ((dm.heightPixels - bottomInsetPx) - h) / 2
+        // Each new window is offset a bit so windows cascade like on a desktop
+        val step = (cascade % 6) * (40 * dm.density).toInt()
+        cascade++
+        val baseLeft = (dm.widthPixels - w) / 2 - 3 * (40 * dm.density).toInt() + step
+        val baseTop = ((dm.heightPixels - bottomInsetPx) - h) / 2 - 3 * (40 * dm.density).toInt() + step
+        val left = baseLeft.coerceIn(0, (dm.widthPixels - w).coerceAtLeast(0))
+        val top = baseTop.coerceIn(0, (dm.heightPixels - bottomInsetPx - h).coerceAtLeast(0))
         return launchWithBounds(context, app, Rect(left, top, left + w, top + h))
     }
 
